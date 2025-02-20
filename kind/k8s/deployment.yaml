@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mario-friends
+  labels:
+    app: mario-friends
+spec:
+  selector:
+    matchLabels:
+      app: mario-friends
+  template:
+    metadata:
+      labels:
+        app: mario-friends
+    spec:
+      containers:
+      - name: mario-friends
+        image: localhost:5000/mario-friends/mario-friends:1.0.0-dev
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        livenessProbe:
+          httpGet:
+            path: /.well-known/health
+            port: 8080
+        readinessProbe:
+          httpGet:
+            path: /.well-known/health
+            port: 8080
+        resources:
+          limits:
+            cpu: 100m
+            memory: 50Mi
+          requests:
+            cpu: 80m
+            memory: 25Mi
+

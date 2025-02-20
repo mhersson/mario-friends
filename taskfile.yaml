@@ -1,0 +1,77 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: "3"
+
+vars:
+  name: mario-friends
+  version: "1.0.0"
+
+tasks:
+  default:
+    silent: true
+    cmds:
+    - echo "Welcome to {{.name}}"
+    - task -l
+
+  create-cluster:
+    desc: Create a new cluster
+    env:
+      CLUSTER_NAME: "{{.name}}"
+    cmds:
+    - kind/create-cluster-and-registry.sh
+    status:
+    - kind get clusters | grep {{.name}}
+
+  destroy-cluster:
+    desc: Destroy cluster
+    cmds:
+    - kind delete cluster --name {{.name}}
+    - docker stop kind-registry
+    - docker rm kind-registry
+
+  install-ingress:
+    desc: Install nginx ingress
+    deps:
+    - create-cluster
+    cmds:
+    - kubectl apply --filename https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/static/provider/kind/deploy.yaml
+    - kubectl -n ingress-nginx rollout status deployment/ingress-nginx-controller --timeout=2m
+    status:
+    - kubectl -n ingress-nginx rollout status deployment/ingress-nginx-controller
+
+  install-cert-manager:
+    desc: Install cert-manager
+    deps:
+    - create-cluster
+    cmds:
+    - kubectl apply --filename https://github.com/jetstack/cert-manager/releases/download/v1.15.2/cert-manager.yaml
+    - kubectl -n cert-manager rollout status deployment/cert-manager --timeout=2m
+    - kubectl -n cert-manager rollout status deployment/cert-manager-webhook --timeout=2m
+    - kubectl -n cert-manager rollout status deployment/cert-manager-cainjector --timeout=2m
+    - |
+      cat << 'EOF' | kubectl apply -f -
+      apiVersion: cert-manager.io/v1
+      kind: ClusterIssuer
+      metadata:
+        name: self-signed
+      spec:
+        selfSigned: {}
+      EOF
+
+  deploy:
+    desc: Deploy the application to the cluster
+    deps:
+    - install-ingress
+    cmds:
+    - docker buildx build --tag  localhost:5000/{{.name}}/{{.name}}:{{.version}}-dev --push .
+    - timoni bundle apply -f timoni/bundle.cue
+
+  kind-image:
+    desc: Build and upload a new image to the cluster
+    cmds:
+    # With docker
+    - docker buildx build --tag  localhost:5000/{{.name}}/{{.name}}:{{.version}}-dev --push .
+    - kubectl delete -n {{.name}} $(kubectl get pods -n {{.name}} -o name)
+    # With podman
+    # - podman build . --tag  localhost:5000/{{.name}}/{{.name}}:{{.version}}-dev
+    # - podman ocker push localhost:5000/{{.name}}/{{.name}}:{{.version}}-dev
